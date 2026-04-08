@@ -87,12 +87,27 @@ export function TransactionsProvider({ children }: { children: React.ReactNode }
       return;
     }
     try {
-      const { data, error } = await supabase
-        .from('transactions')
-        .select('*')
-        .order('date', { ascending: false });
-      if (error) throw error;
-      setTransactions((data ?? []).map(rowToTransaction));
+      const PAGE = 1000;
+      let from = 0;
+      let all: Transaction[] = [];
+
+      while (true) {
+        const { data, error } = await supabase
+          .from('transactions')
+          .select('*')
+          .order('date', { ascending: false })
+          .range(from, from + PAGE - 1);
+
+        if (error) throw error;
+
+        const rows = (data ?? []).map(rowToTransaction);
+        all = [...all, ...rows];
+
+        if (rows.length < PAGE) break; // no more pages
+        from += PAGE;
+      }
+
+      setTransactions(all);
     } catch (err) {
       console.error('[transactions] fetch error:', err);
     } finally {
