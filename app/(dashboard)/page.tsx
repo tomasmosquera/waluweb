@@ -9,6 +9,7 @@ import ToolIcon from '@/components/tools/ToolIcon';
 import ToolFormModal from '@/components/tools/ToolFormModal';
 import { formatAmount } from '@/lib/currencies';
 import { ALL_TOOL_TYPES, OUT_OF_MONTRACKER, type ToolType } from '@/lib/toolConstants';
+import { useTransactions } from '@/context/TransactionsContext';
 
 /* ── Translations ────────────────────────────────────────── */
 const TYPE_LABEL: Record<ToolType, [string, string]> = {
@@ -36,6 +37,7 @@ function balanceColor(amount: number): string {
 export default function HomePage() {
   const { profile, isGuest } = useAuth();
   const { tools, loading, refetch, deleteTool, archiveTool, unarchiveTool, fullyArchiveTool } = useTools();
+  const { transactions } = useTransactions();
   const { language } = useLanguage();
   const es = language === 'es';
 
@@ -46,6 +48,31 @@ export default function HomePage() {
   const [showArchived,  setShowArchived]  = useState(false);
   const [showHidden,    setShowHidden]    = useState(false);
 
+  /* ── Compute live balance per tool from transactions ─────── */
+  const liveBalances = useMemo(() => {
+    const map: Record<string, number> = {};
+
+    // Start from initialBalance
+    for (const tool of tools) {
+      map[tool.id] = tool.initialBalance;
+    }
+
+    // Apply each transaction
+    for (const tx of transactions) {
+      if (tx.type === 'expense') {
+        if (map[tx.toolId] !== undefined) map[tx.toolId] -= tx.amount;
+      } else if (tx.type === 'income') {
+        if (map[tx.toolId] !== undefined) map[tx.toolId] += tx.amount;
+      } else if (tx.type === 'transfer') {
+        if (map[tx.toolId] !== undefined)   map[tx.toolId]   -= tx.amount;
+        if (tx.toToolId && map[tx.toToolId] !== undefined)
+          map[tx.toToolId] += tx.tabShare ?? tx.amount;
+      }
+    }
+
+    return map;
+  }, [tools, transactions]);
+
   /* ── Derived data ─────────────────────────────────────────── */
   const { activeTools, archivedTools, hiddenTools, totalBalance } = useMemo(() => {
     const active   = tools.filter((t) => t.id !== OUT_OF_MONTRACKER && !t.archived && !t.fullyArchived);
@@ -53,11 +80,11 @@ export default function HomePage() {
     const hidden   = tools.filter((t) => t.fullyArchived);
 
     const totalBalance = active.reduce((acc, t) => {
-      return t.currency === 'COP' ? acc + t.balance : acc;
+      return t.currency === 'COP' ? acc + (liveBalances[t.id] ?? t.initialBalance) : acc;
     }, 0);
 
     return { activeTools: active, archivedTools: archived, hiddenTools: hidden, totalBalance };
-  }, [tools]);
+  }, [tools, liveBalances]);
 
   const groupedTools = useMemo(() => {
     const groups: Partial<Record<ToolType, Tool[]>> = {};
@@ -173,7 +200,7 @@ export default function HomePage() {
       {orderedTypes.map((type) => {
         const groupTools = groupedTools[type] ?? [];
         const isCollapsed = collapsedGroups.has(type);
-        const groupBalance = groupTools.reduce((acc, t) => t.currency === 'COP' ? acc + t.balance : acc, 0);
+        const groupBalance = groupTools.reduce((acc, t) => t.currency === 'COP' ? acc + (liveBalances[t.id] ?? t.initialBalance) : acc, 0);
         const typeLabel = es ? TYPE_LABEL[type][0] : TYPE_LABEL[type][1];
 
         return (
@@ -206,6 +233,7 @@ export default function HomePage() {
                   <ToolCard
                     key={tool.id}
                     tool={tool}
+                    liveBalance={liveBalances[tool.id] ?? tool.initialBalance}
                     es={es}
                     onEdit={() => openEdit(tool)}
                     onDelete={() => handleDelete(tool.id)}
@@ -302,9 +330,10 @@ export default function HomePage() {
 
 /* ── Tool Card ───────────────────────────────────────────── */
 function ToolCard({
-  tool, es, onEdit, onDelete, onArchive, onHide, deleting,
+  tool, liveBalance, es, onEdit, onDelete, onArchive, onHide, deleting,
 }: {
   tool: Tool;
+  liveBalance: number;
   es: boolean;
   onEdit: () => void;
   onDelete: () => void;
@@ -330,14 +359,9 @@ function ToolCard({
       </div>
 
       <div className="text-right mr-2">
-        <p className="font-bold text-sm" style={{ color: balanceColor(tool.balance) }}>
-          {formatBalance(tool.balance, tool.currency)}
+        <p className="font-bold text-sm" style={{ color: balanceColor(liveBalance) }}>
+          {formatBalance(liveBalance, tool.currency)}
         </p>
-        {tool.currency !== 'COP' && (
-          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            {formatBalance(tool.balance, tool.currency)}
-          </p>
-        )}
       </div>
 
       {/* Actions */}

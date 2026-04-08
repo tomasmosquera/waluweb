@@ -66,42 +66,8 @@ function rowToTransaction(row: Record<string, unknown>): Transaction {
   };
 }
 
-/* ── Balance helper ─────────────────────────────────────── */
-
-async function applyBalanceDelta(
-  supabase: ReturnType<typeof createClient>,
-  toolId: string,
-  delta: number
-) {
-  if (!toolId) return;
-  const { data } = await supabase
-    .from('tools')
-    .select('balance')
-    .eq('id', toolId)
-    .single();
-  if (data) {
-    const newBalance = (Number(data.balance) || 0) + delta;
-    await supabase
-      .from('tools')
-      .update({ balance: newBalance, updated_at: new Date().toISOString() })
-      .eq('id', toolId);
-  }
-}
-
-async function applyTxBalance(
-  supabase: ReturnType<typeof createClient>,
-  tx: Pick<TransactionFormData, 'type' | 'amount' | 'toolId' | 'toToolId' | 'tabShare'>,
-  sign: 1 | -1
-) {
-  if (tx.type === 'expense') {
-    await applyBalanceDelta(supabase, tx.toolId, sign * -tx.amount);
-  } else if (tx.type === 'income') {
-    await applyBalanceDelta(supabase, tx.toolId, sign * tx.amount);
-  } else if (tx.type === 'transfer' && tx.toToolId) {
-    await applyBalanceDelta(supabase, tx.toolId,   sign * -tx.amount);
-    await applyBalanceDelta(supabase, tx.toToolId, sign * (tx.tabShare ?? tx.amount));
-  }
-}
+/* ── Balance is computed client-side from initialBalance + transactions ── */
+/* No Supabase balance column mutations needed from the web ─────────────── */
 
 /* ── Provider ────────────────────────────────────────────── */
 
@@ -189,8 +155,6 @@ export function TransactionsProvider({ children }: { children: React.ReactNode }
       .single();
     if (error) throw error;
 
-    await applyTxBalance(supabase, data, 1);
-
     const tx = rowToTransaction(inserted as Record<string, unknown>);
     setTransactions((prev) => [tx, ...prev]);
     return tx;
@@ -219,13 +183,6 @@ export function TransactionsProvider({ children }: { children: React.ReactNode }
     const { error } = await supabase.from('transactions').update(payload).eq('id', id);
     if (error) throw error;
 
-    // Reverse old, apply new
-    await applyTxBalance(supabase, {
-      type: old.type, amount: old.amount, toolId: old.toolId,
-      toToolId: old.toToolId, tabShare: old.tabShare,
-    }, -1);
-    await applyTxBalance(supabase, data, 1);
-
     setTransactions((prev) =>
       prev.map((tx) =>
         tx.id !== id ? tx : {
@@ -249,11 +206,6 @@ export function TransactionsProvider({ children }: { children: React.ReactNode }
   const deleteTransaction = useCallback(async (tx: Transaction): Promise<void> => {
     const { error } = await supabase.from('transactions').delete().eq('id', tx.id);
     if (error) throw error;
-
-    await applyTxBalance(supabase, {
-      type: tx.type, amount: tx.amount, toolId: tx.toolId,
-      toToolId: tx.toToolId, tabShare: tx.tabShare,
-    }, -1);
 
     setTransactions((prev) => prev.filter((t) => t.id !== tx.id));
   }, [supabase]);
