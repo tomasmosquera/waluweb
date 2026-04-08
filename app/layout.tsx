@@ -1,8 +1,16 @@
 import type { Metadata } from 'next';
+import { Roboto } from 'next/font/google';
 
 // All pages are user-specific — skip static prerendering
 export const dynamic = 'force-dynamic';
 import './globals.css';
+
+const roboto = Roboto({
+  subsets: ['latin'],
+  weight: ['300', '400', '500', '700'],
+  display: 'swap',
+  variable: '--font-roboto',
+});
 import { ThemeProvider } from '@/context/ThemeContext';
 import { LanguageProvider } from '@/context/LanguageContext';
 import { AuthProvider } from '@/context/AuthContext';
@@ -21,7 +29,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es" suppressHydrationWarning>
-      <body className="h-full">
+      <body className={`h-full ${roboto.variable}`}>
         <ThemeProvider>
           <LanguageProvider>
             <AuthProvider>
